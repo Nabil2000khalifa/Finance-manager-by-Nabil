@@ -1,4 +1,4 @@
-# Finance Manager
+# Finance Manager Made by ai
 
 A beginner-friendly full-stack finance manager built with React (Vite), Node.js, Express, MongoDB, Mongoose, and JWT authentication.
 
