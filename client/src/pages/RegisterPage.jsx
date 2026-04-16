@@ -24,7 +24,11 @@ const RegisterPage = () => {
     }
   };
 
-  return <AuthForm mode="register" onSubmit={handleSubmit} isSubmitting={isSubmitting} error={error} />;
+  return (
+    <div className="auth-shell">
+      <AuthForm mode="register" onSubmit={handleSubmit} isSubmitting={isSubmitting} error={error} />
+    </div>
+  );
 };
 
 export default RegisterPage;

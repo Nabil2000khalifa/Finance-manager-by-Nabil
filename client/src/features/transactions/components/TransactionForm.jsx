@@ -16,7 +16,7 @@ const TransactionForm = ({ accounts, onSubmit, isSubmitting }) => {
     if (accounts.length && !formData.accountId) {
       setFormData((current) => ({ ...current, accountId: accounts[0]._id }));
     }
-  }, [accounts, formData.accountId]);
+  }, [accounts]);
 
   const handleChange = (event) => {
     const { name, value } = event.target;

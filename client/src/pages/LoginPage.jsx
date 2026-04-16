@@ -24,7 +24,11 @@ const LoginPage = () => {
     }
   };
 
-  return <AuthForm mode="login" onSubmit={handleSubmit} isSubmitting={isSubmitting} error={error} />;
+  return (
+    <div className="auth-shell">
+      <AuthForm mode="login" onSubmit={handleSubmit} isSubmitting={isSubmitting} error={error} />
+    </div>
+  );
 };
 
 export default LoginPage;
