@@ -1,93 +1,97 @@
-import { useEffect, useState } from "react";
-
+import { memo, useState, useCallback, useMemo } from "react";
 import PageHeader from "../components/PageHeader.jsx";
 import SectionCard from "../components/SectionCard.jsx";
-import { accountsService } from "../features/accounts/accounts.service.js";
 import TransactionForm from "../features/transactions/components/TransactionForm.jsx";
 import TransactionList from "../features/transactions/components/TransactionList.jsx";
-import { transactionsService } from "../features/transactions/transactions.service.js";
+import { useTransactions, useCreateTransaction, useDeleteTransaction } from "../hooks/useTransactions.js";
+import { useAccounts } from "../hooks/useAccounts.js";
+import { useDebounce } from "../hooks/useDebounce.js";
 import { useAuth } from "../hooks/useAuth.js";
+
+const MemoizedTransactionForm = memo(TransactionForm);
+const MemoizedTransactionList = memo(TransactionList);
 
 const TransactionsPage = () => {
   const { user } = useAuth();
-  const [accounts, setAccounts] = useState([]);
-  const [transactions, setTransactions] = useState([]);
-  const [filters, setFilters] = useState({
+
+  // Local filters state
+  const [localFilters, setLocalFilters] = useState({
     type: "",
     startDate: "",
     endDate: "",
   });
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
 
-  const loadPageData = async (activeFilters = filters) => {
-    setIsLoading(true);
-    setError("");
+  // Debounce filters to avoid excessive API calls
+  const debouncedFilters = useDebounce(localFilters, 500);
 
-    try {
-      const [accountsData, transactionsData] = await Promise.all([
-        accountsService.getAccounts(),
-        transactionsService.getTransactions(activeFilters),
-      ]);
+  // React Query hooks
+  const { data: accounts = [], isLoading: accountsLoading } = useAccounts();
+  const { data: transactions = [], isLoading: transactionsLoading, error: transactionsError } = useTransactions(debouncedFilters);
+  const createMutation = useCreateTransaction();
+  const deleteMutation = useDeleteTransaction();
 
-      setAccounts(accountsData);
-      setTransactions(transactionsData);
-    } catch (loadError) {
-      setError(loadError.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Message states
+  const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
 
-  useEffect(() => {
-    loadPageData();
+  // Clear messages after 3 seconds
+  const clearMessages = useCallback(() => {
+    const timer = setTimeout(() => {
+      setSuccessMessage("");
+      setErrorMessage("");
+    }, 3000);
+    return () => clearTimeout(timer);
   }, []);
 
-  const handleCreateTransaction = async (payload) => {
-    setIsSaving(true);
-    setMessage("");
-    setError("");
+  // Memoized handlers with useCallback
+  const handleCreateTransaction = useCallback(
+    async (payload) => {
+      try {
+        await createMutation.mutateAsync(payload);
+        setSuccessMessage("Transaction added successfully.");
+        clearMessages();
+      } catch (error) {
+        setErrorMessage(error.message || "Failed to create transaction");
+        clearMessages();
+      }
+    },
+    [createMutation, clearMessages]
+  );
 
-    try {
-      await transactionsService.createTransaction(payload);
-      setMessage("Transaction added successfully.");
-      await loadPageData();
-    } catch (submitError) {
-      setError(submitError.message);
-    } finally {
-      setIsSaving(false);
-    }
-  };
+  const handleDeleteTransaction = useCallback(
+    async (transactionId) => {
+      if (!window.confirm("Delete this transaction?")) {
+        return;
+      }
 
-  const handleDeleteTransaction = async (transactionId) => {
-    if (!window.confirm("Delete this transaction?")) {
-      return;
-    }
+      try {
+        await deleteMutation.mutateAsync(transactionId);
+        setSuccessMessage("Transaction deleted successfully.");
+        clearMessages();
+      } catch (error) {
+        setErrorMessage(error.message || "Failed to delete transaction");
+        clearMessages();
+      }
+    },
+    [deleteMutation, clearMessages]
+  );
 
-    setError("");
-    setMessage("");
-
-    try {
-      await transactionsService.deleteTransaction(transactionId);
-      setMessage("Transaction deleted successfully.");
-      await loadPageData();
-    } catch (deleteError) {
-      setError(deleteError.message);
-    }
-  };
-
-  const handleApplyFilters = async (event) => {
+  const handleApplyFilters = useCallback((event) => {
     event.preventDefault();
-    await loadPageData(filters);
-  };
+    // Filters are already being applied via debounce
+  }, []);
 
-  const handleClearFilters = async () => {
-    const clearedFilters = { type: "", startDate: "", endDate: "" };
-    setFilters(clearedFilters);
-    await loadPageData(clearedFilters);
-  };
+  const handleClearFilters = useCallback(() => {
+    setLocalFilters({ type: "", startDate: "", endDate: "" });
+  }, []);
+
+  // Memoize filter change handler
+  const handleFilterChange = useCallback((filterKey, value) => {
+    setLocalFilters((current) => ({ ...current, [filterKey]: value }));
+  }, []);
+
+  const isLoading = accountsLoading || transactionsLoading;
+  const displayError = transactionsError || errorMessage;
 
   return (
     <>
@@ -96,29 +100,30 @@ const TransactionsPage = () => {
         description="Capture income and expenses, then slice the history by date or type."
       />
 
-      {message ? <div className="message-banner success">{message}</div> : null}
-      {error ? <div className="message-banner error">{error}</div> : null}
+      {successMessage && <div className="message-banner success">{successMessage}</div>}
+      {displayError && <div className="message-banner error">{displayError.message || displayError}</div>}
 
       <div className="grid-two">
         <SectionCard
           title="Add a transaction"
           description="Choose an account and record an income or expense in a few clicks."
         >
-          <TransactionForm accounts={accounts} onSubmit={handleCreateTransaction} isSubmitting={isSaving} />
+          <MemoizedTransactionForm
+            accounts={accounts}
+            onSubmit={handleCreateTransaction}
+            isSubmitting={createMutation.isPending}
+          />
         </SectionCard>
 
-        <SectionCard
-          title="Filter history"
-          description="Narrow the list to a type or a date range."
-        >
+        <SectionCard title="Filter history" description="Narrow the list to a type or a date range.">
           <form onSubmit={handleApplyFilters}>
             <div className="inline-filter">
               <div className="field">
                 <label htmlFor="filter-type">Type</label>
                 <select
                   id="filter-type"
-                  value={filters.type}
-                  onChange={(event) => setFilters((current) => ({ ...current, type: event.target.value }))}
+                  value={localFilters.type}
+                  onChange={(event) => handleFilterChange("type", event.target.value)}
                 >
                   <option value="">All types</option>
                   <option value="income">Income</option>
@@ -132,10 +137,8 @@ const TransactionsPage = () => {
                 <input
                   id="filter-start-date"
                   type="date"
-                  value={filters.startDate}
-                  onChange={(event) =>
-                    setFilters((current) => ({ ...current, startDate: event.target.value }))
-                  }
+                  value={localFilters.startDate}
+                  onChange={(event) => handleFilterChange("startDate", event.target.value)}
                 />
               </div>
 
@@ -144,10 +147,8 @@ const TransactionsPage = () => {
                 <input
                   id="filter-end-date"
                   type="date"
-                  value={filters.endDate}
-                  onChange={(event) =>
-                    setFilters((current) => ({ ...current, endDate: event.target.value }))
-                  }
+                  value={localFilters.endDate}
+                  onChange={(event) => handleFilterChange("endDate", event.target.value)}
                 />
               </div>
 
@@ -171,10 +172,11 @@ const TransactionsPage = () => {
         {isLoading ? (
           <p className="muted-text">Loading transactions...</p>
         ) : (
-          <TransactionList
+          <MemoizedTransactionList
             transactions={transactions}
             currency={user?.currency}
             onDelete={handleDeleteTransaction}
+            isDeleting={deleteMutation.isPending}
           />
         )}
       </SectionCard>
@@ -182,4 +184,4 @@ const TransactionsPage = () => {
   );
 };
 
-export default TransactionsPage;
+export default memo(TransactionsPage);
